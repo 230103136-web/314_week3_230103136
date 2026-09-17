@@ -1,0 +1,84 @@
+- Full Name: Akmaral Adilbek
+- Course: Parallel Computing
+- University: SDU University
+
+
+- Device Type: Laptop
+- Laptop Model: MacBook Air 13-inch (M4, 2025)
+- Processor: Apple M4
+- Physical CPU Cores: 10
+- Python Version: 3.14.3
+
+
+Task 1 
+Cores | Time(s) | Observed Speedup | Theoretical Linear
+-------------------------------------------------------
+    1 |  1.0912 |             1.18x |               1.00x
+    2 |  0.5726 |             2.24x |               2.00x
+    4 |  0.3352 |             3.84x |               4.00x
+    8 |  0.2768 |             4.64x |               8.00x
+   12 |  0.2750 |             4.67x |              12.00x
+   16 |  0.3013 |             4.27x |              16.00x
+
+Q1.1 
+My observed speedup increased from 1.18x with 1 worker to 3.84x with 4 workers. After 4 workers, the speedup started to flatten. With 8 workers, the speedup was 4.64x, and with 12 workers it was 4.67x. At 16 workers, it decreased to 4.27x. Therefore, the main inflection point is p = 4 workers*, because this is where near-linear scaling ends.
+My Apple M4 has 10 physical cores: 4 Performance cores and 6 Efficiency cores, and 10 logical cores. There is no SMT/Hyper-Threading. The first 4 workers can use the 4 Performance cores, which explains the strong scaling up to this point. After 4 workers, additional processes also use Efficiency cores, so the performance improvement becomes smaller. At 12 and 16 workers, there are more processes than physical cores, which creates scheduling and context-switching overhead. This explains why the speedup stops improving and finally decreases at 16 workers.
+Q1.2 — Student Response & Architectural Justification
+From my experiment:
+T(1) = 1.2854 s
+T(4) = 0.3352 s
+First, I calculate the observed speedup:
+S(4) = T(1) / T(4)
+S(4) = 1.2854 / 0.3352 = 3.8347
+Using Amdahl's Law:
+S(4) = 1 / [(1 − P) + P/4]
+3.8347 = 1 / [(1 − P) + P/4]
+1 / 3.8347 = 1 − P + P/4
+0.26078 = 1 − 3P/4
+3P/4 = 0.73922
+P = 0.9856
+Therefore, the parallel fraction of the workload on my machine is approximately P = 0.9856, or 98.56%. The remaining approximately 1.44% represents the effective serial and overhead part of the workload.
+Q1.2 specifically asks you to show the complete algebraic derivation using your empirical T(1) and T(4), so don't remove these calculation steps.
+Q1.3 — Student Response & Architectural Justification
+From Q1.2, my calculated parallel fraction is:
+P = 0.9856
+The asymptotic speedup limit is:
+Smax = 1 / (1 − P)
+Smax = 1 / (1 − 0.9856)
+Smax = 1 / 0.0144
+Smax ≈ 69.4x
+Therefore, the theoretical maximum speedup for this workload is approximately 69x based on the calculated value of P. This means that buying a 128-core server would not give a 128x speedup for this workload. According to Amdahl's Law, the serial part of the program limits the maximum possible speedup. In a real system, the result could be even lower because of process overhead, communication, scheduling, memory contention, and other hardware limitations.
+
+Task 2
+akmaraladilbek@MacBook-Air-Akmaral ~ % python3 task2_falsessharing.py
+Adjacent Indices (False Sharing): 0.3467s
+Padded Indices (Cache-Aligned): 0.3434s
+Slowdown Factor: 1.01x
+akmaraladilbek@MacBook-Air-Akmaral ~ % python3 task2_falsessharing.py
+Adjacent Indices (False Sharing): 0.3544s
+Padded Indices (Cache-Aligned): 0.3438s
+Slowdown Factor: 1.03x
+akmaraladilbek@MacBook-Air-Akmaral ~ % python3 task2_falsessharing.py
+Adjacent Indices (False Sharing): 0.3504s
+Padded Indices (Cache-Aligned): 0.3421s
+Slowdown Factor: 1.02x
+
+
+Q2.1
+In 64-bit CPython, each list slot stores an 8-byte (64-bit) reference to a Python object.
+A cache line is 64 bytes. In the padded version, the stride is 16 elements:
+16 × 8 bytes = 128 bytes
+Since 128 bytes > 64 bytes, the locations used by neighboring threads are separated by more than one cache-line width. Under the memory-layout assumption used in this benchmark, this prevents neighboring threads from accessing reference slots within the same 64-byte cache line and reduces false sharing.
+In my experiment, the median time for adjacent indices was 0.3504 s, while the median time for padded indices was 0.3434 s. The slowdown factor was:
+0.3504 / 0.3434 = 1.02x
+Therefore, the false-sharing configuration was approximately 1.02 times slower than the padded configuration.
+Q2.2
+MESI has four cache-line states: Modified, Exclusive, Shared, and Invalid.
+When Core 0 and Core 1 initially have access to the same cache line, the line may be in the Shared (S) state. When Core 0 writes to index 0, it needs exclusive ownership of the cache line. Other copies are invalidated and Core 0 changes its copy to the Modified (M) state.
+When Core 1 later writes to index 1 located on the same cache line, Core 1 must also obtain ownership. A cache-coherence invalidation is generated. Core 0's copy changes from Modified to Invalid (I), while Core 1 obtains the line and changes it to Modified (M).
+When the two cores repeatedly write to different elements on the same cache line, ownership of the cache line moves between the cores. This creates cache-coherence traffic and pipeline stalls even though the threads are modifying different variables. This effect is called false sharing.
+Q2.3
+Two industry-standard mechanisms used to reduce false sharing are C++ alignas(64) and Java @Contended.
+In C++, alignas(64) can align an object or structure to a 64-byte boundary. This helps place frequently modified data on separate cache lines, reducing unnecessary cache invalidations between threads.
+In Java, @Contended allows the JVM to add padding around selected fields or classes. This separates frequently updated values in memory and reduces the possibility that different threads modify data located on the same cache line.
+These mechanisms are better than manually adding unused array elements because the compiler or runtime can manage memory alignment and padding in a more systematic way.
